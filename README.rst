@@ -20,6 +20,7 @@ Features
 ========
 
 StochANNPy provides routines for stochastic neural networks:
+
 * Bayesian neural networks [1]
 * Evolutionary neural networks
 
