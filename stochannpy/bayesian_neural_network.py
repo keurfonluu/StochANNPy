@@ -9,8 +9,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from sklearn.base import ClassifierMixin
-from sklearn.utils.validation import check_X_y
-from sklearn.utils.multiclass import unique_labels
 from ._base_neural_network import BaseNeuralNetwork
 from stochopy import MonteCarlo
 
@@ -43,7 +41,9 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         If sampler = 'mcmc', standard deviation of gaussian perturbation.
         If sampler = 'hmc', leap-frog step size.
     n_leap : int, optional, default 10
-        Number of leap-frog steps. Only used when sampler = 'hmc'.    
+        Number of leap-frog steps. Only used when sampler = 'hmc'.
+    bounds : scalar, optional, default 1.
+        Search space boundaries for initialization.
     random_state : int, optional, default None
         Seed for random number generator.
     
@@ -70,12 +70,13 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
 
     def __init__(self, hidden_layer_sizes = (10,), activation = "tanh", alpha = 0.,
                  max_iter = 1000, sampler = "mcmc", stepsize = 1e-1, n_leap = 10,
-                 random_state = None):
+                 bounds = 1., random_state = None):
         super(BNNClassifier, self).__init__(
             hidden_layer_sizes = hidden_layer_sizes,
             activation = activation,
             alpha = alpha,
             max_iter = max_iter,
+            bounds = bounds,
             random_state = random_state,
         )
         if not isinstance(sampler, str) or sampler not in [ "mcmc", "hmc" ]:
@@ -103,44 +104,18 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         y : ndarray of length n_samples
             Target values.
         """
-        # Make sure self.hidden_layer_sizes is a list
-        hidden_layer_sizes = self.hidden_layer_sizes
-        if not hasattr(hidden_layer_sizes, "__iter__"):
-            hidden_layer_sizes = [ hidden_layer_sizes ]
-        hidden_layer_sizes = list(hidden_layer_sizes)
+        # Initialize
+        self._initialize(X, y)
         
-        # Check that X and y have correct shape
-        X, y = check_X_y(X, y)
-        self.n_samples_, self.n_features_ = X.shape
-        self.classes_ = unique_labels(y)
-        self.n_outputs_ = len(self.classes_)
-        self.n_layers_ = len(hidden_layer_sizes) + 2
-        self.layer_units_ = ( [ self.n_features_ ] + hidden_layer_sizes + [ self.n_outputs_ ] )
-        
-        # Convert y to a sparse matrix
-        self.ymat_ = np.zeros((self.n_samples_, len(self.classes_)))
-        for i in range(self.n_samples_):
-            self.ymat_[i,y[i]] = 1.
-        
-        # Store meta information for the parameters
-        self.coef_indptr_ = []
-        start = 0
-        for i in range(self.n_layers_-1):
-            n_fan_in, n_fan_out = self.layer_units_[i]+1, self.layer_units_[i+1]
-            end = start + (n_fan_in * n_fan_out)
-            self.coef_indptr_.append((start, end, (n_fan_out, n_fan_in)))
-            start = end
-            
-        # Initialize functions
-        self._init_functions()
-        
-        # Initialize coefficients
-        initial_coefs = self._init_coefs()
-        packed_initial_coefs = self._pack(initial_coefs)
+        # Initialize boundaries
+        n_dim = np.sum([ np.prod(i[-1]) for i in self.coef_indptr_ ])
+        lower = np.full(n_dim, -self.bounds)
+        upper = np.full(n_dim, self.bounds)
         
         # Optimize using Hamiltonian Monte-Carlo
         self._markov_chain = MonteCarlo(self._loss,
-                                        n_dim = len(packed_initial_coefs),
+                                        lower = lower,
+                                        upper = upper,
                                         max_iter = self.max_iter,
                                         args = (X,))
         if self.sampler == "hmc":
@@ -149,13 +124,11 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
                 fprime = self._grad,
                 stepsize = self.stepsize,
                 n_leap = self.n_leap,
-                xstart = packed_initial_coefs,
                 args = (X,))
         elif self.sampler == "mcmc":
             self._markov_chain.sample(
                 sampler = "hastings",
-                stepsize = self.stepsize,
-                xstart = packed_initial_coefs)
+                stepsize = self.stepsize)
         return
     
     def predict(self, X, n_burnin = 0):
@@ -252,24 +225,30 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         ignore_bias : bool, optional, default True
             If False, plot the posterior distribution of the biases.
         """
+        weights = self.weights
+        if not ignore_bias:
+            biases = self.biases
+            
         for i in range(self.n_layers_-1):
-            start, end, shape = self.coef_indptr_[i]
-            fig = plt.figure(figsize = (5, 4), facecolor = "white")
+            fig = plt.figure(figsize = (8, 8), facecolor = "white")
             ax1 = fig.add_subplot(1, 1, 1)
-            if ignore_bias:
-                start += shape[0]
-            for j in range(start, end):
-                wmin = np.min(self._markov_chain.models[j,n_burnin:])
-                wmax = np.max(self._markov_chain.models[j,n_burnin:])
+            
+            for j in range(weights[i].shape[0]):
+                wmin = np.min(weights[i][j,:])
+                wmax = np.max(weights[i][j,:])
                 aw = np.linspace(wmin, wmax, 101)
-                kde = gaussian_kde(self._markov_chain.models[j,n_burnin:])
+                kde = gaussian_kde(weights[i][j,:])
                 pdf = kde.pdf(aw)
-                
-                if j < start + shape[0] and not ignore_bias:
-                    linestyle = ":"
-                else:
-                    linestyle = "-"
-                ax1.plot(aw, pdf, linestyle = linestyle)
+                ax1.plot(aw, pdf, linestyle = "-")
+            
+            if not ignore_bias:
+                for j in range(biases[i].shape[0]):
+                    bmin = np.min(biases[i][j,:])
+                    bmax = np.max(biases[i][j,:])
+                    ab = np.linspace(bmin, bmax, 101)
+                    kde = gaussian_kde(biases[i][j,:])
+                    pdf = kde.pdf(ab)
+                    ax1.plot(ab, pdf, linestyle = ":")
         return
     
     @property
@@ -280,4 +259,51 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         sampled for the layer i.
         """
         weights = []
+        for i in range(self.n_layers_-1):
+            start, end, shape = self.coef_indptr_[i]
+            nw = np.prod(shape)-shape[0]
+            w_i = np.zeros((nw, self.max_iter))
+            for j, k in enumerate(range(start+shape[0], end)):
+                w_i[j,:] = self._markov_chain.models[k,:]
+            weights.append(np.array(w_i))
         return weights
+    
+    @property
+    def biases(self):
+        """
+        list of ndarray
+        Sampled neural network biases. The ith element holds all the biases
+        sampled for the layer i.
+        """
+        biases = []
+        for i in range(self.n_layers_-1):
+            start, end, shape = self.coef_indptr_[i]
+            b_i = np.zeros((shape[0], self.max_iter))
+            for j, k in enumerate(range(start, start+shape[0])):
+                b_i[j,:] = self._markov_chain.models[k,:]
+            biases.append(np.array(b_i))
+        return biases
+    
+    @property
+    def models(self):
+        """
+        ndarray of shape (n_dim, max_iter)
+        Sampled models.
+        """
+        return self._markov_chain._models
+    
+    @property
+    def energy(self):
+        """
+        ndarray of shape (max_iter)
+        Energy of sampled models.
+        """
+        return self._markov_chain._energy
+    
+    @property
+    def acceptance_ratio(self):
+        """
+        scalar between 0 and 1
+        Acceptance ratio of sampler.
+        """
+        return self._markov_chain._acceptance_ratio

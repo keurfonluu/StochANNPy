@@ -5,7 +5,7 @@ StochANNPy
 StochANNPy (STOCHAstic Artificial Neural Network for PYthon) provides
 user-friendly routines compatible with Scikit-Learn for stochastic learning.
 
-:Version: 0.0.1a1
+:Version: 0.0.1b1
 :Author: Keurfon Luu
 :Web site: https://github.com/keurfonluu/stochannpy
 :Copyright: This document has been placed in the public domain.
@@ -36,6 +36,12 @@ The recommended way to install StochANNPy is through pip:
 .. code-block:: bash
 
     pip install stochannpy
+    
+Otherwise, download and extract the package, then run:
+
+.. code-block:: bash
+
+    python setup.py install
     
 
 Usage

@@ -12,14 +12,14 @@ URL = "https://github.com/keurfonluu/stochannpy"
 LICENSE = "MIT License"
 REQUIREMENTS = [
     "numpy >= 1.9.0",
-    "stochopy >= 1.1.1",
+    "stochopy >= 1.1.2",
     "scikit-learn",
     "scipy",
     "matplotlib",
 ]
 CLASSIFIERS = [
     "Programming Language :: Python",
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Operating System :: OS Independent",

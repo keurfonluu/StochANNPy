@@ -9,6 +9,8 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 from six import with_metaclass
 from sklearn.base import BaseEstimator
+from sklearn.utils.validation import check_X_y
+from sklearn.utils.multiclass import unique_labels
 
 __all__ = [ "BaseNeuralNetwork" ]
 
@@ -32,13 +34,15 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
         L2 penalty (regularization term) parameter.
     max_iter : int, optional, default 100
         Maximum number of iterations.
+    bounds : scalar, optional, default 1.
+        Search space boundaries for initialization.
     random_state : int, optional, default None
         Seed for random number generator.
     """
     
     @abstractmethod
     def __init__(self, hidden_layer_sizes = (10,), activation = "tanh", alpha = 0.,
-                 max_iter = 100, random_state = None):
+                 max_iter = 100, bounds = 1., random_state = None):
         # Check inputs
         if isinstance(hidden_layer_sizes, tuple) or isinstance(hidden_layer_sizes, list):
             if not np.all([ isinstance(l, int) and l > 0 for l in hidden_layer_sizes ]):
@@ -59,8 +63,45 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
             raise ValueError("max_iter must be a positive integer, got %s" % max_iter)
         else:
             self.max_iter = max_iter
+        if not isinstance(bounds, float) and not isinstance(bounds, int) or bounds <= 0.:
+            raise ValueError("bounds must be positive, got %s" % bounds)
+        else:
+            self.bounds = bounds
         if random_state is not None:
             np.random.seed(random_state)
+        return
+    
+    def _initialize(self, X, y):
+        # Make sure self.hidden_layer_sizes is a list
+        hidden_layer_sizes = self.hidden_layer_sizes
+        if not hasattr(hidden_layer_sizes, "__iter__"):
+            hidden_layer_sizes = [ hidden_layer_sizes ]
+        hidden_layer_sizes = list(hidden_layer_sizes)
+        
+        # Check that X and y have correct shape
+        X, y = check_X_y(X, y)
+        self.n_samples_, self.n_features_ = X.shape
+        self.classes_ = unique_labels(y)
+        self.n_outputs_ = len(self.classes_)
+        self.n_layers_ = len(hidden_layer_sizes) + 2
+        self.layer_units_ = ( [ self.n_features_ ] + hidden_layer_sizes + [ self.n_outputs_ ] )
+        
+        # Convert y to a sparse matrix
+        self.ymat_ = np.zeros((self.n_samples_, len(self.classes_)))
+        for i in range(self.n_samples_):
+            self.ymat_[i,y[i]] = 1.
+        
+        # Store meta information for the parameters
+        self.coef_indptr_ = []
+        start = 0
+        for i in range(self.n_layers_-1):
+            n_fan_in, n_fan_out = self.layer_units_[i]+1, self.layer_units_[i+1]
+            end = start + (n_fan_in * n_fan_out)
+            self.coef_indptr_.append((start, end, (n_fan_out, n_fan_in)))
+            start = end
+            
+        # Initialize functions
+        self._init_functions()
         return
     
     def _predict(self, X):

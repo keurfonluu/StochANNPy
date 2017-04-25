@@ -7,8 +7,6 @@ License: MIT
 
 import numpy as np
 from sklearn.base import ClassifierMixin
-from sklearn.utils.validation import check_X_y
-from sklearn.utils.multiclass import unique_labels
 from ._base_neural_network import BaseNeuralNetwork
 from stochopy import Evolutionary
 
@@ -61,6 +59,8 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         Minimum change in best individual.
     eps2 : scalar, optional, default 1e-8
         Minimum objective function precision.
+    bounds : scalar, optional, default 1.
+        Search space boundaries for initialization.
     random_state : int, optional, default None
         Seed for random number generator.
     
@@ -89,12 +89,13 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
                  activation = "logistic", solver = "pso", popsize = 10,
                  w = 0.72, c1 = 1.49, c2 = 1.49, l = 0.1, F = 1., CR = 0.5,
                  sigma = 1., mu_perc = 0.5, eps1 = 1e-8, eps2 = 1e-8,
-                 random_state = None):
+                 bounds = 1., random_state = None):
         super(ENNClassifier, self).__init__(
             hidden_layer_sizes = hidden_layer_sizes,
             activation = activation,
             alpha = alpha,
             max_iter = max_iter,
+            bounds = bounds,
             random_state = random_state,
         )
         if not isinstance(solver, str) or solver not in [ "pso", "de", "cmaes" ]:
@@ -129,44 +130,18 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         y : ndarray of length n_samples
             Target values.
         """
-        # Make sure self.hidden_layer_sizes is a list
-        hidden_layer_sizes = self.hidden_layer_sizes
-        if not hasattr(hidden_layer_sizes, "__iter__"):
-            hidden_layer_sizes = [ hidden_layer_sizes ]
-        hidden_layer_sizes = list(hidden_layer_sizes)
+        # Initialize
+        self._initialize(X, y)
         
-        # Check that X and y have correct shape
-        X, y = check_X_y(X, y)
-        self.n_samples_, self.n_features_ = X.shape
-        self.classes_ = unique_labels(y)
-        self.n_outputs_ = len(self.classes_)
-        self.n_layers_ = len(hidden_layer_sizes) + 2
-        self.layer_units_ = ( [ self.n_features_ ] + hidden_layer_sizes + [ self.n_outputs_ ] )
-        
-        # Convert y to a sparse matrix
-        self.ymat_ = np.zeros((self.n_samples_, len(self.classes_)))
-        for i in range(self.n_samples_):
-            self.ymat_[i,y[i]] = 1.
-        
-        # Store meta information for the parameters
-        self.coef_indptr_ = []
-        start = 0
-        for i in range(self.n_layers_-1):
-            n_fan_in, n_fan_out = self.layer_units_[i]+1, self.layer_units_[i+1]
-            end = start + (n_fan_in * n_fan_out)
-            self.coef_indptr_.append((start, end, (n_fan_out, n_fan_in)))
-            start = end
-            
-        # Initialize functions
-        self._init_functions()
-        
-        # Initialize coefficients
-        initial_coefs = self._init_coefs()
-        packed_initial_coefs = self._pack(initial_coefs)
+        # Initialize boundaries
+        n_dim = np.sum([ np.prod(i[-1]) for i in self.coef_indptr_ ])
+        lower = np.full(n_dim, -self.bounds)
+        upper = np.full(n_dim, self.bounds)
         
         # Optimize using L-BFGS
         self._optimizer = Evolutionary(self._loss,
-                                       n_dim = len(packed_initial_coefs),
+                                       lower = lower,
+                                       upper = upper,
                                        max_iter = self.max_iter,
                                        popsize = self._popsize,
                                        eps1 = self._eps1,
@@ -244,3 +219,54 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             return np.vstack([1. - ypred, ypred]).transpose()
         else:
             return ypred
+    
+    @property
+    def flag(self):
+        """
+        int
+        Stopping criterion:
+            - 0, best individual position changes less than eps1.
+            - 1, maximum number of iterations is reached.
+            - 2, NoEffectAxis (only when solver = 'cmaes').
+            - 3, NoEffectCoord (only when solver = 'cmaes').
+            - 4, ConditionCov (only when solver = 'cmaes').
+            - 5, EqualFunValues (only when solver = 'cmaes').
+            - 6, TolXUp (only when solver = 'cmaes').
+            - 7, TolFun (only when solver = 'cmaes').
+            - 8, TolX (only when solver = 'cmaes').
+        """
+        return self._optimizer._flag
+    
+    @property
+    def n_iter(self):
+        """
+        int
+        Number of iterations required to reach stopping criterion.
+        """
+        return self._optimizer._n_iter
+    
+    @property
+    def n_eval(self):
+        """
+        int
+        Number of function evaluations performed.
+        """
+        return self._optimizer._n_eval
+    
+    @property
+    def models(self):
+        """
+        ndarray of shape (n_dim, popsize, max_iter)
+        Models explored by every individuals at each iteration. Available only
+        when snap = True.
+        """
+        return self._optimizer._models
+    
+    @property
+    def energy(self):
+        """
+        ndarray of shape (popsize, max_iter)
+        Energy of models explored by every individuals at each iteration.
+        Available only when snap = True.
+        """
+        return self._optimizer._energy
