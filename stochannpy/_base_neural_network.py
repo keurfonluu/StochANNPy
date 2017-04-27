@@ -9,8 +9,9 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 from six import with_metaclass
 from sklearn.base import BaseEstimator
-from sklearn.utils.validation import check_X_y
-from sklearn.utils.multiclass import unique_labels
+from sklearn.utils import check_X_y, check_array, column_or_1d
+from sklearn.utils.validation import check_is_fitted
+from sklearn.preprocessing import LabelBinarizer
 
 __all__ = [ "BaseNeuralNetwork" ]
 
@@ -26,10 +27,11 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
     hidden_layer_sizes : tuple or list, length = n_layers-2, default (10,)
         The ith element represents the number of neurons in the ith hidden
         layer.
-    activation : {'logistic', 'tanh'}, default 'tanh'
+    activation : {'logistic', 'tanh', 'relu'}, default 'relu'
         Activation function the hidden layer.
         - 'logistic', the logistic sigmoid function.
         - 'tanh', the hyperbolic tan function.
+        - 'relu', the REctified Linear Unit function.
     alpha : scalar, optional, default 0.
         L2 penalty (regularization term) parameter.
     max_iter : int, optional, default 100
@@ -43,33 +45,40 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
     @abstractmethod
     def __init__(self, hidden_layer_sizes = (10,), activation = "tanh", alpha = 0.,
                  max_iter = 100, bounds = 1., random_state = None):
-        # Check inputs
-        if isinstance(hidden_layer_sizes, tuple) or isinstance(hidden_layer_sizes, list):
-            if not np.all([ isinstance(l, int) and l > 0 for l in hidden_layer_sizes ]):
-                raise ValueError("hidden_layer_sizes must contains positive integers only, got %s" % hidden_layer_sizes) 
-            else:
-                self.hidden_layer_sizes = hidden_layer_sizes
+        self.hidden_layer_sizes = hidden_layer_sizes
+        self.activation = activation
+        self.alpha = alpha
+        self.max_iter = max_iter
+        self.bounds = bounds
+        self.random_state = random_state
+            
+    def _validate_base_hyperparameters(self):
+        if isinstance(self.hidden_layer_sizes, tuple) or isinstance(self.hidden_layer_sizes, list):
+            if not np.all([ isinstance(l, int) and l > 0 for l in self.hidden_layer_sizes ]):
+                raise ValueError("hidden_layer_sizes must contains positive integers only, got %s" % self.hidden_layer_sizes)
         else:
             raise ValueError("hidden_layer_sizes must be a tuple or a list")
-        if not isinstance(activation, str) and activation not in [ "logistic", "tanh" ]:
-            raise ValueError("activation must either be 'logistic' or 'tanh', got %s" % activation)
-        else:
-            self.activation = activation
-        if not isinstance(alpha, float) and not isinstance(alpha, int) or alpha < 0.:
-            raise ValueError("alpha must be positive, got %s" % alpha)
-        else:
-            self.alpha = alpha
-        if not isinstance(max_iter, int) or max_iter <= 0:
-            raise ValueError("max_iter must be a positive integer, got %s" % max_iter)
-        else:
-            self.max_iter = max_iter
-        if not isinstance(bounds, float) and not isinstance(bounds, int) or bounds <= 0.:
-            raise ValueError("bounds must be positive, got %s" % bounds)
-        else:
-            self.bounds = bounds
-        if random_state is not None:
-            np.random.seed(random_state)
-        return
+        if not isinstance(self.activation, str) and self.activation not in [ "logistic", "tanh" ]:
+            raise ValueError("activation must either be 'logistic' or 'tanh', got %s" % self.activation)
+        if not isinstance(self.alpha, float) and not isinstance(self.alpha, int) or self.alpha < 0.:
+            raise ValueError("alpha must be positive, got %s" % self.alpha)
+        if not isinstance(self.max_iter, int) or self.max_iter <= 0:
+            raise ValueError("max_iter must be a positive integer, got %s" % self.max_iter)
+        if not isinstance(self.bounds, float) and not isinstance(self.bounds, int) or self.bounds <= 0.:
+            raise ValueError("bounds must be positive, got %s" % self.bounds)
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
+    def _validate_input(self, X, y):
+        X, y = check_X_y(X, y)
+        if y.ndim == 2 and y.shape[1] == 1:
+            y = column_or_1d(y, warn = True)
+            
+        self._label_binarizer = LabelBinarizer()
+        self._label_binarizer.fit(y)
+        self.classes_ = self._label_binarizer.classes_
+        y = self._label_binarizer.transform(y)
+        return X, y
     
     def _initialize(self, X, y):
         # Make sure self.hidden_layer_sizes is a list
@@ -79,17 +88,12 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
         hidden_layer_sizes = list(hidden_layer_sizes)
         
         # Check that X and y have correct shape
-        X, y = check_X_y(X, y)
+        X, y = self._validate_input(X, y)
+        self.ymat_ = np.array(y)
         self.n_samples_, self.n_features_ = X.shape
-        self.classes_ = unique_labels(y)
-        self.n_outputs_ = len(self.classes_)
+        self.n_outputs_ = y.shape[1]
         self.n_layers_ = len(hidden_layer_sizes) + 2
         self.layer_units_ = ( [ self.n_features_ ] + hidden_layer_sizes + [ self.n_outputs_ ] )
-        
-        # Convert y to a sparse matrix
-        self.ymat_ = np.zeros((self.n_samples_, len(self.classes_)))
-        for i in range(self.n_samples_):
-            self.ymat_[i,y[i]] = 1.
         
         # Store meta information for the parameters
         self.coef_indptr_ = []
@@ -102,7 +106,7 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
             
         # Initialize functions
         self._init_functions()
-        return
+        return X, y
     
     def _predict(self, X):
         """
@@ -118,6 +122,8 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
         h : ndarray
             Output layer activation values.
         """
+        check_is_fitted(self, "coefs_")
+        X = check_array(X)
         unpacked_coefs = self.coefs_
         Z, activations = self._forward_pass(unpacked_coefs, X)
         return activations[-1]
@@ -243,11 +249,13 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
         elif self.activation == "tanh":
             self._func = self._tanh
             self._fprime = self._tanh_grad
-        if self.n_outputs_ > 1:
+        elif self.activation == "relu":
+            self._func = self._relu
+            self._fprime = self._relu_grad
+        if self._label_binarizer.y_type_ == "multiclass":
             self._output_func = self._softmax
         else:
             self._output_func = self._sigmoid
-        return
     
     def _init_coefs(self):
         coefs_init = []
@@ -281,17 +289,25 @@ class BaseNeuralNetwork(with_metaclass(ABCMeta, BaseEstimator)):
         return init_bound * rnd
     
     def _sigmoid(self, x):
-        return 1. / (1. + np.exp(-x))
+        out = np.array(x, dtype = np.float64)
+        return 0.5 * (1. + np.tanh(0.5*out))
         
     def _sigmoid_grad(self, x):
         sig = self._sigmoid(x)
         return sig * (1 - sig)
     
     def _tanh(self, x):
-        return np.tanh(x)
+        out = np.array(x, dtype = np.float64)
+        return np.tanh(out)
     
     def _tanh_grad(self, x):
         return 1. - self._tanh(x)**2
+    
+    def _relu(self, x):
+        return np.clip(x, 0, np.finfo(x.dtype).max)
+    
+    def _relu_grad(self, x):
+        return 1. * (np.array(x) > 0.)
     
     def _softmax(self, x):
         tmp = x - x.max(axis = 1)[:,np.newaxis]

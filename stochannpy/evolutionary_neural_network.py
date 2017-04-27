@@ -26,10 +26,11 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
     hidden_layer_sizes : tuple or list, length = n_layers-2, default (10,)
         The ith element represents the number of neurons in the ith hidden
         layer.
-    activation : {'logistic', 'tanh'}, default 'tanh'
+    activation : {'logistic', 'tanh', 'relu'}, default 'relu'
         Activation function the hidden layer.
         - 'logistic', the logistic sigmoid function.
         - 'tanh', the hyperbolic tan function.
+        - 'relu', the REctified Linear Unit function.
     alpha : scalar, optional, default 0.
         L2 penalty (regularization term) parameter.
     max_iter : int, optional, default 100
@@ -86,7 +87,7 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
     """
 
     def __init__(self, hidden_layer_sizes = (10,), max_iter = 100, alpha = 0.,
-                 activation = "logistic", solver = "pso", popsize = 10,
+                 activation = "relu", solver = "pso", popsize = 10,
                  w = 0.72, c1 = 1.49, c2 = 1.49, l = 0.1, F = 1., CR = 0.5,
                  sigma = 1., mu_perc = 0.5, eps1 = 1e-8, eps2 = 1e-8,
                  bounds = 1., random_state = None):
@@ -98,26 +99,29 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             bounds = bounds,
             random_state = random_state,
         )
-        if not isinstance(solver, str) or solver not in [ "pso", "de", "cmaes" ]:
-            raise ValueError("solver must either be 'pso', 'de' or 'cmaes', got %s" % solver)
-        else:
-            self.solver = solver
-        if not isinstance(popsize, int) or popsize < 2:
-            raise ValueError("popsize must be an integer > 1, got %s" % popsize)
-        else:
-            self._popsize = int(popsize)
-        if not isinstance(eps1, float) and not isinstance(eps1, int) or eps1 < 0.:
-            raise ValueError("eps1 must be positive, got %s" % eps1)
-        else:
-            self._eps1 = eps1
-        if not isinstance(eps2, float) and not isinstance(eps2, int):
-            raise ValueError("eps2 must be an integer or float, got %s" % eps2)
-        else:
-            self._eps2 = eps2
-        self._hyperparams = {"w": w, "c1": c1, "c2": c2, "l": l,
-                             "F": F, "CR": CR,
-                             "sigma": sigma, "mu_perc": mu_perc}
-        return
+        self.solver = solver
+        self.popsize = int(popsize)
+        self.eps1 = eps1
+        self.eps2 = eps2
+        self.w = w
+        self.c1 = c1
+        self.c2 = c2
+        self.l = l
+        self.F = F
+        self.CR = CR
+        self.sigma = sigma
+        self.mu_perc = mu_perc
+        
+    def _validate_hyperparameters(self):
+        self._validate_base_hyperparameters()
+        if not isinstance(self.solver, str) or self.solver not in [ "pso", "de", "cmaes" ]:
+            raise ValueError("solver must either be 'pso', 'de' or 'cmaes', got %s" % self.solver)
+        if not isinstance(self.popsize, int) or self.popsize < 2:
+            raise ValueError("popsize must be an integer > 1, got %s" % self.popsize)
+        if not isinstance(self.eps1, float) and not isinstance(self.eps1, int) or self.eps1 < 0.:
+            raise ValueError("eps1 must be positive, got %s" % self.eps1)
+        if not isinstance(self.eps2, float) and not isinstance(self.eps2, int):
+            raise ValueError("eps2 must be an integer or float, got %s" % self.eps2)
     
     def fit(self, X, y):
         """
@@ -130,39 +134,43 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         y : ndarray of length n_samples
             Target values.
         """
-        # Initialize
-        self._initialize(X, y)
+        # Check inputs and initialize
+        self._validate_hyperparameters()
+        X, y = self._initialize(X, y)
         
         # Initialize boundaries
         n_dim = np.sum([ np.prod(i[-1]) for i in self.coef_indptr_ ])
         lower = np.full(n_dim, -self.bounds)
         upper = np.full(n_dim, self.bounds)
         
-        # Optimize using L-BFGS
-        self._optimizer = Evolutionary(self._loss,
-                                       lower = lower,
-                                       upper = upper,
-                                       max_iter = self.max_iter,
-                                       popsize = self._popsize,
-                                       eps1 = self._eps1,
-                                       eps2 = self._eps2,
-                                       args = (X,))
+        # Optimize using PSO, DE or CMA-ES
+        ea = Evolutionary(self._loss,
+                          lower = lower,
+                          upper = upper,
+                          max_iter = self.max_iter,
+                          popsize = self.popsize,
+                          eps1 = self.eps1,
+                          eps2 = self.eps2,
+                          args = (X,))
         if self.solver == "de":
-            packed_coefs, self.loss_ = self._optimizer.optimize(solver = "de",
-                                                                F = self._hyperparams["F"],
-                                                                CR = self._hyperparams["CR"])
+            packed_coefs, self.loss_ = ea.optimize(solver = "de",
+                                                   F = self.F,
+                                                   CR = self.CR)
         elif self.solver == "pso":
-            packed_coefs, self.loss_ = self._optimizer.optimize(solver = "pso",
-                                                                w = self._hyperparams["w"],
-                                                                c1 = self._hyperparams["c1"],
-                                                                c2 = self._hyperparams["c2"],
-                                                                l = self._hyperparams["l"])
+            packed_coefs, self.loss_ = ea.optimize(solver = "pso",
+                                                   w = self.w,
+                                                   c1 = self.c1,
+                                                   c2 = self.c2,
+                                                   l = self.l)
         elif self.solver == "cmaes":
-            packed_coefs, self.loss_ = self._optimizer.optimize(solver = "cmaes",
-                                                                sigma = self._hyperparams["sigma"],
-                                                                mu_perc = self._hyperparams["mu_perc"])
+            packed_coefs, self.loss_ = ea.optimize(solver = "cmaes",
+                                                   sigma = self.sigma,
+                                                   mu_perc = self.mu_perc)
         self.coefs_ = self._unpack(packed_coefs)
-        return
+        self.flag_ = ea.flag
+        self.n_iter_ = ea.n_iter
+        self.n_eval_ = ea.n_eval        
+        return self
     
     def predict(self, X):
         """
@@ -178,7 +186,10 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         ypred : ndarray of length n_samples
             Predicted labels.
         """
-        return self.classes_[np.argmax(self._predict(X), axis = 1)]
+        y_pred = self._predict(X)
+        if self.n_outputs_ == 1:
+            y_pred = y_pred.ravel()
+        return self._label_binarizer.inverse_transform(y_pred)
     
     def predict_log_proba(self, X):
         """
@@ -212,13 +223,49 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             The ith row and jth column holds the probability of the ith sample
             to the jth class
         """
-        ypred = self._predict(X)
+        y_pred = self._predict(X)
         if self.n_outputs_ == 1:
-            ypred = ypred.ravel()
-        if ypred.ndim == 1:
-            return np.vstack([1. - ypred, ypred]).transpose()
+            y_pred = y_pred.ravel()
+        if y_pred.ndim == 1:
+            return np.vstack([1. - y_pred, y_pred]).transpose()
         else:
-            return ypred
+            return y_pred
+    
+    def score(self, X, y):
+        """
+        Compute accuracy score.
+        
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+        y : ndarray of length n_samples
+            Target values.
+            
+        Returns
+        -------
+        acc : scalar
+            Accuracy of prediction.
+        """
+        return np.mean(self.predict(X) == y)
+    
+    @property
+    def weights(self):
+        """
+        list of ndarray
+        Neural network weights. The ith element holds the weighs for the
+        layer i.
+        """
+        return [ np.array(coefs[:,1:].T) for coefs in self.coefs_ ]
+    
+    @property
+    def biases(self):
+        """
+        list of ndarray
+        Neural network biases. The ith element holds the biases for the
+        layer i.
+        """
+        return [ np.array(coefs[:,0]) for coefs in self.coefs_ ]
     
     @property
     def flag(self):
@@ -235,7 +282,6 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             - 7, TolFun (only when solver = 'cmaes').
             - 8, TolX (only when solver = 'cmaes').
         """
-        return self._optimizer._flag
     
     @property
     def n_iter(self):
@@ -243,7 +289,6 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         int
         Number of iterations required to reach stopping criterion.
         """
-        return self._optimizer._n_iter
     
     @property
     def n_eval(self):
@@ -251,22 +296,3 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         int
         Number of function evaluations performed.
         """
-        return self._optimizer._n_eval
-    
-    @property
-    def models(self):
-        """
-        ndarray of shape (n_dim, popsize, max_iter)
-        Models explored by every individuals at each iteration. Available only
-        when snap = True.
-        """
-        return self._optimizer._models
-    
-    @property
-    def energy(self):
-        """
-        ndarray of shape (popsize, max_iter)
-        Energy of models explored by every individuals at each iteration.
-        Available only when snap = True.
-        """
-        return self._optimizer._energy

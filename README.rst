@@ -5,7 +5,7 @@ StochANNPy
 StochANNPy (STOCHAstic Artificial Neural Network for PYthon) provides
 user-friendly routines compatible with Scikit-Learn for stochastic learning.
 
-:Version: 0.0.1b1
+:Version: 0.0.1b2
 :Author: Keurfon Luu
 :Web site: https://github.com/keurfonluu/stochannpy
 :Copyright: This document has been placed in the public domain.
@@ -19,13 +19,16 @@ to contact me.
 Features
 ========
 
-StochANNPy provides routines for stochastic neural networks:
+StochANNPy provides routines compatible with Scikit-Learn for stochastic neural
+networks including:
 
-* Bayesian neural networks [1]
-* Evolutionary neural networks
+* Bayesian neural networks (currently, only classifier) [1]
+* Evolutionary neural networks (currently, only classifier)
 
-**NOTE**: for now, only classifier has been implemented. Regressor will come
-later.
+**NOTE**: ENNClassifier and BNNClassifier both passed Scikit-Learn estimator
+checks test! ...well almost. Bayesian learning requires more than 5 samples to
+explore the weight space, BNNClassifier only pass when increasing the maximum
+number of iterations (line 280 of the script). 
 
 
 Installation

@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from sklearn.base import ClassifierMixin
+from sklearn.utils.validation import check_array, check_is_fitted
 from ._base_neural_network import BaseNeuralNetwork
 from stochopy import MonteCarlo
 
@@ -27,15 +28,16 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
     hidden_layer_sizes : tuple or list, length = n_layers-2, default (10,)
         The ith element represents the number of neurons in the ith hidden
         layer.
-    activation : {'logistic', 'tanh'}, default 'tanh'
+    activation : {'logistic', 'tanh', 'relu'}, default 'relu'
         Activation function the hidden layer.
         - 'logistic', the logistic sigmoid function.
         - 'tanh', the hyperbolic tan function.
+        - 'relu', the REctified Linear Unit function.
     alpha : scalar, optional, default 0.
         L2 penalty (regularization term) parameter.
     max_iter : int, optional, default 1000
         Maximum number of iterations.
-    sampler : {'mcmc', 'hmc'}, default 'mcmc'
+    sampler : {'mcmc', 'hastings', 'hmc', 'hamiltonian'}, default 'mcmc'
         Sampling method.
     stepsize : scalar, optional, default 1e-1
         If sampler = 'mcmc', standard deviation of gaussian perturbation.
@@ -68,7 +70,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
     >>> print(np.mean(ypred == y_test))
     """
 
-    def __init__(self, hidden_layer_sizes = (10,), activation = "tanh", alpha = 0.,
+    def __init__(self, hidden_layer_sizes = (10,), activation = "relu", alpha = 0.,
                  max_iter = 1000, sampler = "mcmc", stepsize = 1e-1, n_leap = 10,
                  bounds = 1., random_state = None):
         super(BNNClassifier, self).__init__(
@@ -79,19 +81,18 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             bounds = bounds,
             random_state = random_state,
         )
-        if not isinstance(sampler, str) or sampler not in [ "mcmc", "hmc" ]:
-            raise ValueError("sampler must either be 'mcmc' or 'hmc', got %s" % sampler)
-        else:
-            self.sampler = sampler
-        if not isinstance(stepsize, float) and not isinstance(stepsize, int) or stepsize <= 0.:
-            raise ValueError("stepsize must be positive, got %s" % stepsize)
-        else:
-            self.stepsize = stepsize
-        if not isinstance(n_leap, int) or n_leap <= 0:
-            raise ValueError("n_leap must be a positive integer, got %s" % n_leap)
-        else:
-            self.n_leap = n_leap
-        return
+        self.sampler = sampler
+        self.stepsize = stepsize
+        self.n_leap = n_leap
+            
+    def _validate_hyperparameters(self):
+        self._validate_base_hyperparameters()
+        if not isinstance(self.sampler, str) or self.sampler not in [ "mcmc", "hastings", "hmc", "hamiltonian" ]:
+            raise ValueError("sampler must either be 'mcmc', 'hastings', 'hmc' or 'hamiltonian', got %s" % self.sampler)
+        if not isinstance(self.stepsize, float) and not isinstance(self.stepsize, int) or self.stepsize <= 0.:
+            raise ValueError("stepsize must be positive, got %s" % self.stepsize)
+        if not isinstance(self.n_leap, int) or self.n_leap <= 0:
+            raise ValueError("n_leap must be a positive integer, got %s" % self.n_leap)
     
     def fit(self, X, y):
         """
@@ -104,8 +105,9 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         y : ndarray of length n_samples
             Target values.
         """
-        # Initialize
-        self._initialize(X, y)
+        # Check inputs and initialize
+        self._validate_hyperparameters()
+        X, y = self._initialize(X, y)
         
         # Initialize boundaries
         n_dim = np.sum([ np.prod(i[-1]) for i in self.coef_indptr_ ])
@@ -113,23 +115,25 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         upper = np.full(n_dim, self.bounds)
         
         # Optimize using Hamiltonian Monte-Carlo
-        self._markov_chain = MonteCarlo(self._loss,
-                                        lower = lower,
-                                        upper = upper,
-                                        max_iter = self.max_iter,
-                                        args = (X,))
-        if self.sampler == "hmc":
-            self._markov_chain.sample(
-                sampler = "hamiltonian",
-                fprime = self._grad,
-                stepsize = self.stepsize,
-                n_leap = self.n_leap,
-                args = (X,))
-        elif self.sampler == "mcmc":
-            self._markov_chain.sample(
-                sampler = "hastings",
-                stepsize = self.stepsize)
-        return
+        mc = MonteCarlo(self._loss,
+                        lower = lower,
+                        upper = upper,
+                        max_iter = self.max_iter,
+                        args = (X,))
+        if self.sampler in [ "hmc", "hamiltonian" ]:
+            mc.sample(sampler = "hamiltonian",
+                      fprime = self._grad,
+                      stepsize = self.stepsize,
+                      n_leap = self.n_leap,
+                      args = (X,))
+        elif self.sampler in [ "mcmc", "hastings" ]:
+            mc.sample(sampler = "hastings",
+                      stepsize = self.stepsize)
+        self.models_ = mc.models
+        self.energy_ = mc.energy
+        self.acceptance_ratio_ = mc.acceptance_ratio
+        self.n_iter_ = self.max_iter
+        return self
     
     def predict(self, X, n_burnin = 0):
         """
@@ -148,9 +152,11 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         ypred : ndarray of length n_samples
             Predicted labels.
         """
-        ypred = self._predict(X)
-        ypred = np.sum(self._integrate(ypred, n_burnin), 0)
-        return self.classes_[np.argmax(ypred, axis = 1)]
+        y_pred = self._predict(X)
+        y_pred = np.sum(self._integrate(y_pred, n_burnin), 0)
+        if self.n_outputs_ == 1:
+            y_pred = y_pred.ravel()
+        return self._label_binarizer.inverse_transform(y_pred)
     
     def predict_log_proba(self, X, n_burnin = 0):
         """
@@ -190,28 +196,48 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             The ith row and jth column holds the probability of the ith sample
             to the jth class
         """
-        ypred = self._predict(X)
-        ypred = np.sum(self._integrate(ypred, n_burnin), 0)
+        y_pred = self._predict(X)
+        y_pred = np.sum(self._integrate(y_pred, n_burnin), 0)
         if self.n_outputs_ == 1:
-            ypred = ypred.ravel()
-        if ypred.ndim == 1:
-            return np.vstack([1. - ypred, ypred]).transpose()
+            y_pred = y_pred.ravel()
+        if y_pred.ndim == 1:
+            return np.vstack([1. - y_pred, y_pred]).transpose()
         else:
-            return ypred
+            return y_pred
     
     def _predict(self, X):
-        ypred = [ np.array([]) for i in range(self.max_iter) ]
+        check_is_fitted(self, "models_")
+        X = check_array(X)
+        y_pred = [ np.array([]) for i in range(self.max_iter) ]
         for i in range(self.max_iter):
-            unpacked_coefs = self._unpack(self._markov_chain.models[:,i])
+            unpacked_coefs = self._unpack(self.models_[:,i])
             Z, activations = self._forward_pass(unpacked_coefs, X)
-            ypred[i] = activations[-1]
-        return ypred
+            y_pred[i] = activations[-1]
+        return y_pred
             
-    def _integrate(self, ypred, n_burnin = 0):
-        weights = np.exp(-self._markov_chain.energy[n_burnin:])
+    def _integrate(self, y_pred, n_burnin = 0):
+        weights = np.exp(-self.energy_[n_burnin:])
         weights /= np.sum(weights)
-        ypred = [ ypred[n_burnin+i]*weights[i] for i in range(len(weights)) ]
-        return ypred
+        y_pred = [ y_pred[n_burnin+i]*weights[i] for i in range(len(weights)) ]
+        return y_pred
+    
+    def score(self, X, y):
+        """
+        Compute accuracy score.
+        
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+        y : ndarray of length n_samples
+            Target values.
+            
+        Returns
+        -------
+        acc : scalar
+            Accuracy of prediction.
+        """
+        return np.mean(self.predict(X) == y)
     
     def plot_coefs(self, n_burnin = 0, ignore_bias = True):
         """
@@ -249,7 +275,6 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
                     kde = gaussian_kde(biases[i][j,:])
                     pdf = kde.pdf(ab)
                     ax1.plot(ab, pdf, linestyle = ":")
-        return
     
     @property
     def weights(self):
@@ -264,7 +289,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             nw = np.prod(shape)-shape[0]
             w_i = np.zeros((nw, self.max_iter))
             for j, k in enumerate(range(start+shape[0], end)):
-                w_i[j,:] = self._markov_chain.models[k,:]
+                w_i[j,:] = self.models_[k,:]
             weights.append(np.array(w_i))
         return weights
     
@@ -280,7 +305,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             start, end, shape = self.coef_indptr_[i]
             b_i = np.zeros((shape[0], self.max_iter))
             for j, k in enumerate(range(start, start+shape[0])):
-                b_i[j,:] = self._markov_chain.models[k,:]
+                b_i[j,:] = self.models_[k,:]
             biases.append(np.array(b_i))
         return biases
     
@@ -290,7 +315,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         ndarray of shape (n_dim, max_iter)
         Sampled models.
         """
-        return self._markov_chain._models
+        return self.models_
     
     @property
     def energy(self):
@@ -298,7 +323,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         ndarray of shape (max_iter)
         Energy of sampled models.
         """
-        return self._markov_chain._energy
+        return self.energy_
     
     @property
     def acceptance_ratio(self):
@@ -306,4 +331,4 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         scalar between 0 and 1
         Acceptance ratio of sampler.
         """
-        return self._markov_chain._acceptance_ratio
+        return self.acceptance_ratio_
