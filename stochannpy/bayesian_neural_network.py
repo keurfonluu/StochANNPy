@@ -260,19 +260,19 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             ax1 = fig.add_subplot(1, 1, 1)
             
             for j in range(weights[i].shape[0]):
-                wmin = np.min(weights[i][j,:])
-                wmax = np.max(weights[i][j,:])
+                wmin = np.min(weights[i][j,n_burnin:])
+                wmax = np.max(weights[i][j,n_burnin:])
                 aw = np.linspace(wmin, wmax, 101)
-                kde = gaussian_kde(weights[i][j,:])
+                kde = gaussian_kde(weights[i][j,n_burnin:])
                 pdf = kde.pdf(aw)
                 ax1.plot(aw, pdf, linestyle = "-")
             
             if not ignore_bias:
                 for j in range(biases[i].shape[0]):
-                    bmin = np.min(biases[i][j,:])
-                    bmax = np.max(biases[i][j,:])
+                    bmin = np.min(biases[i][j,n_burnin:])
+                    bmax = np.max(biases[i][j,n_burnin:])
                     ab = np.linspace(bmin, bmax, 101)
-                    kde = gaussian_kde(biases[i][j,:])
+                    kde = gaussian_kde(biases[i][j,n_burnin:])
                     pdf = kde.pdf(ab)
                     ax1.plot(ab, pdf, linestyle = ":")
     

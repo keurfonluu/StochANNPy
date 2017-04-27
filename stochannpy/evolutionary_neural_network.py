@@ -282,6 +282,7 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             - 7, TolFun (only when solver = 'cmaes').
             - 8, TolX (only when solver = 'cmaes').
         """
+        return self.flag_
     
     @property
     def n_iter(self):
@@ -289,6 +290,7 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         int
         Number of iterations required to reach stopping criterion.
         """
+        return self.n_iter_
     
     @property
     def n_eval(self):
@@ -296,3 +298,4 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         int
         Number of function evaluations performed.
         """
+        return self.n_eval_
