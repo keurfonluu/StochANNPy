@@ -104,6 +104,10 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             Input data.
         y : ndarray of length n_samples
             Target values.
+        
+        Returns
+        -------
+        self : returns a trained BNNClassifier.
         """
         # Check inputs and initialize
         self._validate_hyperparameters()

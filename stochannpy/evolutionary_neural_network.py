@@ -133,6 +133,10 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             Input data.
         y : ndarray of length n_samples
             Target values.
+        
+        Returns
+        -------
+        self : returns a trained ENNClassifier.
         """
         # Check inputs and initialize
         self._validate_hyperparameters()
