@@ -5,11 +5,11 @@ StochANNPy
 StochANNPy (STOCHAstic Artificial Neural Network for PYthon) provides
 user-friendly routines compatible with Scikit-Learn for stochastic learning.
 
-:Version: 0.0.1b3
+:Version: 0.0.1b4
 :Author: Keurfon Luu
 :Web site: https://github.com/keurfonluu/stochannpy
 :Copyright: This document has been placed in the public domain.
-:License: StochOPy is released under the MIT License.
+:License: StochANNPy is released under the MIT License.
 
 **NOTE**: StochANNPy has been implemented in the frame of my Ph. D. thesis. If
 you find any error or bug, or if you have any suggestion, please don't hesitate
@@ -77,6 +77,12 @@ Compute the accuracy:
 .. code-block:: python
 
     print(np.mean(ypred == y_test))
+    
+    
+Related works
+=============
+
+* `StochOPy <https://github.com/keurfonluu/stochopy>`__: StochOPy (STOCHastic OPtimization for PYthon) provides user-friendly routines to sample or optimize objective functions with the most popular algorithms.
 
 
 References

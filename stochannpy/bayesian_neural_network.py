@@ -260,7 +260,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             biases = self.biases
             
         for i in range(self.n_layers_-1):
-            fig = plt.figure(figsize = (8, 8), facecolor = "white")
+            fig = plt.figure(figsize = (8, 5), facecolor = "white")
             ax1 = fig.add_subplot(1, 1, 1)
             
             for j in range(weights[i].shape[0]):
@@ -279,6 +279,11 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
                     kde = gaussian_kde(biases[i][j,n_burnin:])
                     pdf = kde.pdf(ab)
                     ax1.plot(ab, pdf, linestyle = ":")
+                    
+            ylim = ax1.get_ylim()
+            ax1.set_title("Hidden layer %d" % (i+1))
+            ax1.set_ylim(0, ylim[1])
+            ax1.grid(True)
     
     @property
     def weights(self):

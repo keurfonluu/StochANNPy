@@ -15,7 +15,7 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from stochannpy import ENNClassifier
-from .joblib import Parallel, delayed, cpu_count
+from joblib import Parallel, delayed, cpu_count
 
 __all__ = [ "MCCVClassifier" ]
 
@@ -146,15 +146,59 @@ class BaseMonteCarloCV(with_metaclass(ABCMeta, BaseEstimator)):
             X_test.append(X[idx_test,:])
             y_test.append(y[idx_test])
         return X_train, y_train, X_test, y_test
+    
+    def _predict(self, X):
+        """
+        Predict using the trained model.
+        
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+        
+        Returns
+        -------
+        y_pred : ndarray of length n_samples
+            Predicted labels.
+        """
+        check_is_fitted(self, "scores_")
+        X = check_array(X)
+        classes = self.classes_[:,np.newaxis]
+        weights = np.array(self.scores_ / np.sum(self.scores_))
+        y_pred = np.array([ weights[i] * (estimator.predict(X) == classes).T
+                               for i, estimator in enumerate(self._estimators) ])
+        return y_pred
+    
+    def _predict_proba(self, X):
+        """
+        Probability estimates.
+        
+        Parameters
+        ----------
+        X : ndarray of shape (n_samples, n_features)
+            Input data.
+        
+        Returns
+        -------
+        y_prob : ndarray of shape (n_samples, n_outputs)
+            The ith row and jth column holds the probability of the ith sample
+            to the jth class
+        """
+        check_is_fitted(self, "scores_")
+        X = check_array(X)
+        weights = np.array(self.scores_ / np.sum(self.scores_))
+        y_prob = np.array([ weights[i] * estimator.predict_proba(X)
+                            for i, estimator in enumerate(self._estimators) ])
+        return y_prob
 
 
 class MCCVClassifier(BaseMonteCarloCV, ClassifierMixin):
     """
     Monte-Carlo Cross-Validation classifier.
     
-    This classifier is a meta-estimator that performs multiple training with
-    the same classifier on different train and test dataset. The predictions
-    are a weighted averages of the predictions from each trained estimator.
+    This classifier is a meta-estimator that performs multiple trainings with
+    the same classifier on different train and test data sets. The predictions
+    are weighted averages of the predictions from each trained estimator.
     
     Parameters
     ----------
@@ -253,15 +297,10 @@ class MCCVClassifier(BaseMonteCarloCV, ClassifierMixin):
         
         Returns
         -------
-        ypred : ndarray of length n_samples
+        y_pred : ndarray of length n_samples
             Predicted labels.
         """
-        check_is_fitted(self, "scores_")
-        X = check_array(X)
-        classes = self.classes_[:,np.newaxis]
-        weights = np.array(self.scores_ / np.sum(self.scores_))
-        y_pred = np.array([ weights[i] * (estimator.predict(X) == classes).T
-                               for i, estimator in enumerate(self._estimators) ])
+        y_pred = self._predict(X)
         y_pred = np.sum(y_pred, 0)
         return self.classes_.take(np.argmax(y_pred, axis = 1), axis = 0)
     
@@ -276,7 +315,7 @@ class MCCVClassifier(BaseMonteCarloCV, ClassifierMixin):
         
         Returns
         -------
-        yprob : ndarray of shape (n_samples, n_outputs)
+        y_prob : ndarray of shape (n_samples, n_outputs)
             The ith row and jth column holds the log-probability of the ith
             sample to the jth class
         """
@@ -293,14 +332,10 @@ class MCCVClassifier(BaseMonteCarloCV, ClassifierMixin):
         
         Returns
         -------
-        yprob : ndarray of shape (n_samples, n_outputs)
+        y_prob : ndarray of shape (n_samples, n_outputs)
             The ith row and jth column holds the probability of the ith sample
             to the jth class
         """
-        check_is_fitted(self, "scores_")
-        X = check_array(X)
-        weights = np.array(self.scores_ / np.sum(self.scores_))
-        y_prob = np.array([ weights[i] * estimator.predict_proba(X)
-                            for i, estimator in enumerate(self._estimators) ])
+        y_prob = self._predict_proba(X)
         y_prob = np.sum(y_prob, 0)
         return y_prob
