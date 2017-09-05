@@ -161,6 +161,7 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
                           popsize = self.popsize,
                           eps1 = self.eps1,
                           eps2 = self.eps2,
+                          constrain = False,
                           args = (X,))
         if self.solver == "de":
             packed_coefs, self.loss_ = ea.optimize(solver = "de",

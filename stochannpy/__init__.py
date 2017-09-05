@@ -14,4 +14,4 @@ from .mccv import MCCVClassifier
 
 
 __all__ = [ "BNNClassifier", "ENNClassifier", "MCCVClassifier" ]
-__version__ = "0.0.1b4"
+__version__ = "0.0.1b5"

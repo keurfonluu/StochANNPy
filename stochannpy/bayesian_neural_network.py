@@ -123,6 +123,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
                         lower = lower,
                         upper = upper,
                         max_iter = self.max_iter,
+                        constrain = False,
                         args = (X,))
         if self.sampler in [ "hmc", "hamiltonian" ]:
             mc.sample(sampler = "hamiltonian",
@@ -214,7 +215,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
         X = check_array(X)
         y_pred = [ np.array([]) for i in range(self.max_iter) ]
         for i in range(self.max_iter):
-            unpacked_coefs = self._unpack(self.models_[:,i])
+            unpacked_coefs = self._unpack(self.models_[i,:])
             Z, activations = self._forward_pass(unpacked_coefs, X)
             y_pred[i] = activations[-1]
         return y_pred
@@ -283,7 +284,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             ylim = ax1.get_ylim()
             ax1.set_title("Hidden layer %d" % (i+1))
             ax1.set_ylim(0, ylim[1])
-            ax1.grid(True)
+            ax1.grid(True, linestyle = ":")
     
     @property
     def weights(self):
@@ -298,7 +299,7 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             nw = np.prod(shape)-shape[0]
             w_i = np.zeros((nw, self.max_iter))
             for j, k in enumerate(range(start+shape[0], end)):
-                w_i[j,:] = self.models_[k,:]
+                w_i[j,:] = self.models_[:,k]
             weights.append(np.array(w_i))
         return weights
     
@@ -314,14 +315,14 @@ class BNNClassifier(BaseNeuralNetwork, ClassifierMixin):
             start, end, shape = self.coef_indptr_[i]
             b_i = np.zeros((shape[0], self.max_iter))
             for j, k in enumerate(range(start, start+shape[0])):
-                b_i[j,:] = self.models_[k,:]
+                b_i[j,:] = self.models_[:,k]
             biases.append(np.array(b_i))
         return biases
     
     @property
     def models(self):
         """
-        ndarray of shape (n_dim, max_iter)
+        ndarray of shape (max_iter, n_dim)
         Sampled models.
         """
         return self.models_
