@@ -291,8 +291,9 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         """
         int
         Stopping criterion:
+            - -1, maximum number of iterations is reached.
             - 0, best individual position changes less than eps1.
-            - 1, maximum number of iterations is reached.
+            - 1, fitness is lower than threshold eps2.
             - 2, NoEffectAxis (only when solver = 'cmaes').
             - 3, NoEffectCoord (only when solver = 'cmaes').
             - 4, ConditionCov (only when solver = 'cmaes').

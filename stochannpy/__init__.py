@@ -12,6 +12,5 @@ from .bayesian_neural_network import BNNClassifier
 from .evolutionary_neural_network import ENNClassifier
 from .mccv import MCCVClassifier
 
-
 __all__ = [ "BNNClassifier", "ENNClassifier", "MCCVClassifier" ]
-__version__ = "0.0.1b5"
+__version__ = "0.0.1b6"
