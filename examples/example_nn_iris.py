@@ -10,15 +10,14 @@ License: MIT
 import numpy as np
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
-
-
-if __name__ == "__main__":
-    # Import MCCVClassifier
+try:
+    from stochannpy import BNNClassifier, ENNClassifier
+except ImportError:
     import sys
     sys.path.append("../")
-    from stochannpy.bayesian_neural_network import BNNClassifier
-    from stochannpy.evolutionary_neural_network import ENNClassifier
-    
+    from stochannpy import BNNClassifier, ENNClassifier
+
+if __name__ == "__main__":
     # Load IRIS dataset
     iris = load_iris()
     
@@ -44,10 +43,11 @@ if __name__ == "__main__":
     # Predict using BNNClassifier
     clf = BNNClassifier(hidden_layer_sizes = (5,),
                         activation = "relu",
-                        max_iter = 2000,
+                        max_iter = 5000,
                         alpha = 0.,
-                        sampler = "mcmc",
-                        stepsize = 1.)
+                        sampler = "hmc",
+                        stepsize = 0.1,
+                        n_leap = 10)
     clf.fit(X_train, y_train)
     ypred = clf.predict(X_test)
     print("Test Set Accuracy (BNNClassifier): %.2f" \

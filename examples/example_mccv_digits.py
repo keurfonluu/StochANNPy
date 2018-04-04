@@ -12,14 +12,15 @@ import matplotlib.pyplot as plt
 from sklearn.datasets import load_digits
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
+try:
+    from stochannpy import MCCVClassifier
+except ImportError:
+    import sys
+    sys.path.append("../")
+    from stochannpy import MCCVClassifier
 
 
 if __name__ == "__main__":
-    # Import MCCVClassifier
-    import sys
-    sys.path.append("../")
-    from stochannpy.mccv import MCCVClassifier
-    
     # Load digits dataset
     digits = load_digits()
     
@@ -38,6 +39,7 @@ if __name__ == "__main__":
         img = img_mean.reshape((8, 8))
         ax.imshow(img, cmap = "gray")
     fig.tight_layout()
+    fig.show()
         
     # Split data set
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.5)

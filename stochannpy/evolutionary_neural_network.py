@@ -35,19 +35,17 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         L2 penalty (regularization term) parameter.
     max_iter : int, optional, default 100
         Maximum number of iterations.
-    solver : {'de', 'pso', 'cpso', 'cmaes'}, default 'cpso'
+    solver : {'de', 'pso', 'cpso', 'cmaes', 'vdcma'}, default 'cpso'
         Evolutionary Algorithm optimizer.
     popsize : int, optional, default 10
         Population size.
-    w : scalar, optional, default 0.72
+    w : scalar, optional, default 0.7298
         Inertial weight. Only used when solver = {'pso', 'cpso'}.
-    c1 : scalar, optional, default 1.49
+    c1 : scalar, optional, default 1.49618
         Cognition parameter. Only used when solver = {'pso', 'cpso'}.
-    c2 : scalar, optional, default 1.49
+    c2 : scalar, optional, default 1.49618
         Sociability parameter. Only used when solver = {'pso', 'cpso'}.
-    l : scalar, optional, default 0.1
-        Velocity clamping percentage. Only used when solver = {'pso', 'cpso'}.
-    gamma : scalar, optional, default 1.25
+    gamma : scalar, optional, default 1.
         Competitivity parameter. Only used when solver = 'cpso'.
     delta : None or scalar, optional, default None
         Swarm maximum radius. Only used when solver = 'cpso'.
@@ -56,10 +54,10 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
     CR : scalar, optional, default 0.5
         Crossover probability. Only used when solver = 'de'.
     sigma : scalar, optional, default 1.
-        Step size. Only used when solver = 'cmaes'.
+        Step size. Only used when solver = {'cmaes', 'vdcma'}.
     mu_perc : scalar, optional, default 0.5
         Number of parents as a percentage of population size. Only used
-        when solver = 'cmaes'.
+        when solver = {'cmaes', 'vdcma'}.
     eps1 : scalar, optional, default 1e-8
         Minimum change in best individual.
     eps2 : scalar, optional, default 1e-8
@@ -92,8 +90,8 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
 
     def __init__(self, hidden_layer_sizes = (10,), max_iter = 100, alpha = 0.,
                  activation = "relu", solver = "cpso", popsize = 10,
-                 w = 0.72, c1 = 1.49, c2 = 1.49, l = 0.1, gamma = 1.25,
-                 delta = None, F = 1., CR = 0.5, sigma = 1., mu_perc = 0.5,
+                 w = 0.7298, c1 = 1.49618, c2 = 1.49618, gamma = 1.,
+                 F = 1., CR = 0.5, sigma = 1., mu_perc = 0.5,
                  eps1 = 1e-8, eps2 = 1e-8, bounds = 1., random_state = None):
         super(ENNClassifier, self).__init__(
             hidden_layer_sizes = hidden_layer_sizes,
@@ -110,9 +108,7 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         self.w = w
         self.c1 = c1
         self.c2 = c2
-        self.l = l
         self.gamma = gamma
-        self.delta = delta
         self.F = F
         self.CR = CR
         self.sigma = sigma
@@ -120,8 +116,8 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         
     def _validate_hyperparameters(self):
         self._validate_base_hyperparameters()
-        if not isinstance(self.solver, str) or self.solver not in [ "cpso", "pso", "de", "cmaes" ]:
-            raise ValueError("solver must either be 'cpso', 'pso', 'de' or 'cmaes', got %s" % self.solver)
+        if not isinstance(self.solver, str) or self.solver not in [ "cpso", "pso", "de", "cmaes", "vdcma" ]:
+            raise ValueError("solver must either be 'cpso', 'pso', 'de', 'cmaes' or 'vdcma', got %s" % self.solver)
         if not isinstance(self.popsize, int) or self.popsize < 2:
             raise ValueError("popsize must be an integer > 1, got %s" % self.popsize)
         if not isinstance(self.eps1, float) and not isinstance(self.eps1, int) or self.eps1 < 0.:
@@ -166,23 +162,27 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
         if self.solver == "de":
             packed_coefs, self.loss_ = ea.optimize(solver = "de",
                                                    F = self.F,
-                                                   CR = self.CR)
+                                                   CR = self.CR,
+                                                   )
         elif self.solver == "pso":
             packed_coefs, self.loss_ = ea.optimize(solver = "pso",
                                                    w = self.w,
                                                    c1 = self.c1,
                                                    c2 = self.c2,
-                                                   l = self.l)
+                                                   )
         elif self.solver == "cpso":
             packed_coefs, self.loss_ = ea.optimize(solver = "cpso",
                                                    w = self.w,
                                                    c1 = self.c1,
                                                    c2 = self.c2,
-                                                   l = self.l,
                                                    gamma = self.gamma,
-                                                   delta = self.delta)
+                                                   )
         elif self.solver == "cmaes":
             packed_coefs, self.loss_ = ea.optimize(solver = "cmaes",
+                                                   sigma = self.sigma,
+                                                   mu_perc = self.mu_perc)
+        elif self.solver == "vdcma":
+            packed_coefs, self.loss_ = ea.optimize(solver = "vdcma",
                                                    sigma = self.sigma,
                                                    mu_perc = self.mu_perc)
         self.coefs_ = self._unpack(packed_coefs)
@@ -294,13 +294,13 @@ class ENNClassifier(BaseNeuralNetwork, ClassifierMixin):
             - -1, maximum number of iterations is reached.
             - 0, best individual position changes less than eps1.
             - 1, fitness is lower than threshold eps2.
-            - 2, NoEffectAxis (only when solver = 'cmaes').
-            - 3, NoEffectCoord (only when solver = 'cmaes').
-            - 4, ConditionCov (only when solver = 'cmaes').
-            - 5, EqualFunValues (only when solver = 'cmaes').
-            - 6, TolXUp (only when solver = 'cmaes').
-            - 7, TolFun (only when solver = 'cmaes').
-            - 8, TolX (only when solver = 'cmaes').
+            - 2, NoEffectAxis (only when solver = {'cmaes', 'vdcma'}).
+            - 3, NoEffectCoord (only when solver = {'cmaes', 'vdcma'}).
+            - 4, ConditionCov (only when solver = {'cmaes', 'vdcma'}).
+            - 5, EqualFunValues (only when solver = {'cmaes', 'vdcma'}).
+            - 6, TolXUp (only when solver = {'cmaes', 'vdcma'}).
+            - 7, TolFun (only when solver = {'cmaes', 'vdcma'}).
+            - 8, TolX (only when solver = {'cmaes', 'vdcma'}).
         """
         return self.flag_
     
